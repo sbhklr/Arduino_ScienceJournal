@@ -5,6 +5,7 @@
 #include <Arduino_LPS22HB.h>
 #include <Arduino_LSM9DS1.h>
 #include <PDM.h>
+#include <ResponsiveAnalogRead.h>
 
 #include <ArduinoBLE.h>
 
@@ -12,8 +13,10 @@ const int VERSION = 0x00000001;
 const float TEMPERATURE_CALIBRATION = -5.0;
 
 #define SCIENCE_KIT_UUID(val) ("555a0002-" val "-467a-9538-01f0652c74e8")
+#define RESISTANCE_PIN A0
+#define INPUT_VOLTAGE 3.3
 
-//#define DEBUG 0
+#define DEBUG 0
 
 BLEService                     service                    (SCIENCE_KIT_UUID("0000"));
 BLEUnsignedIntCharacteristic   versionCharacteristic      (SCIENCE_KIT_UUID("0001"), BLERead);
@@ -26,8 +29,10 @@ BLEFloatCharacteristic         humidityCharacteristic     (SCIENCE_KIT_UUID("001
 BLEUnsignedIntCharacteristic   proximityCharacteristic    (SCIENCE_KIT_UUID("0017"), BLENotify);
 BLECharacteristic              colorCharacteristic        (SCIENCE_KIT_UUID("0018"), BLENotify, 4 * sizeof(int));
 BLEUnsignedShortCharacteristic soundPressureCharacteristic(SCIENCE_KIT_UUID("0019"), BLENotify);
+BLEFloatCharacteristic         resistanceCharacteristic   (SCIENCE_KIT_UUID("0020"), BLENotify);
 
 short soundSampleBuffer[256];
+ResponsiveAnalogRead resistance(RESISTANCE_PIN, false);
 
 void onPDMdata() {
   // query the number of bytes available
@@ -74,6 +79,8 @@ void setup() {
   #endif
 
   delay(2000);
+
+  pinMode(RESISTANCE_PIN, INPUT); // Used for reading resistance
 
   if (!APDS.begin()) {
     printSerialMsg("Failed to initialized APDS!");
@@ -142,6 +149,7 @@ void setup() {
   service.addCharacteristic(proximityCharacteristic);
   service.addCharacteristic(colorCharacteristic);
   service.addCharacteristic(soundPressureCharacteristic);
+  service.addCharacteristic(resistanceCharacteristic);
 
   versionCharacteristic.setValue(VERSION);
 
@@ -212,5 +220,21 @@ void updateSubscribedCharacteristics() {
   if (pressureCharacteristic.subscribed()) {
     float pressure = BARO.readPressure();
     pressureCharacteristic.writeValue(pressure);
+  }
+
+  if(resistanceCharacteristic.subscribed()){
+    resistance.update();
+    int measuredValue = resistance.getValue();
+    float measuredVoltage = measuredValue / 1024.0f * INPUT_VOLTAGE;
+    Serial.print("Voltage: ");
+    Serial.println(measuredVoltage);
+
+    long resistanceR1 = 10000; //10k Ohm
+    long resistanceR2 = resistanceR1 * (1 / ((INPUT_VOLTAGE / measuredVoltage) - 1)); 
+    Serial.print("Resistance: ");
+    Serial.print(resistanceR2 / 1000.0f);
+    Serial.println("kΩ");
+ 
+    resistanceCharacteristic.writeValue(measuredVoltage);
   }
 }
